@@ -423,7 +423,7 @@ UEH_CAMPUSES = {
     },
     "UEH Cơ sở C (3 tháng 2, quận 10)": {
         "lat": 10.77327112648688, "lon": 106.67760339540814,
-        "address": "Võ Văn Ngân, P.Linh Chiểu, TP.Thủ Đức",
+        "address": "3 tháng 2, quận 10",
         "color": "#27ae60"
     },
 }
