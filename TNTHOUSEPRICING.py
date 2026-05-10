@@ -187,7 +187,7 @@ def haversine(lat1, lon1, lat2, lon2):
 def load_data():
     df = pd.read_csv("dulieu_hoan_hao_final.csv")
     df.columns = df.columns.str.strip()
-    df.rename(columns={"dien_tich": "area_m2"}, inplace=True)
+    df.rename(columns={"area": "area_m2"}, inplace=True)
     df = df.dropna(subset=["price", "latitude", "longitude"])
     df = df[df["price"] > 0]
     df = df[df["price"] <= 8_000_000]
@@ -244,8 +244,8 @@ def _build_features(df_input, df_ref):
         df2["gan_quan_an"].fillna(0) + df2["gan_truong_hoc"].fillna(0)
     )
     # Area feature
-    df2["area_m2"] = df2["area"]
 
+    df2["area_sq"] = df2["area_m2"] ** 2
 # Distance-based features
     df2["lat_lon_interaction"] = df2["latitude"] * df2["longitude"]
 
@@ -261,6 +261,7 @@ def _build_features(df_input, df_ref):
     "quan_enc", "phuong_enc",
     "latitude", "longitude", "lat_lon_interaction",
     "area_m2",
+    "area_sq",
     "amenity_score", "amenity_sq",
     "premium_combo", "utility_combo",
     "dist_ueh_A", "dist_ueh_B", "dist_ueh_C",
@@ -344,46 +345,53 @@ def train_models(df):
     }
 
 
-def fuzzy_membership_area(area_m2):
-    if area_m2 <= 15:
-        small = 1.0
-        medium = 0.0
-        large = 0.0
-    elif area_m2 <= 25:
-        small = (25 - area_m2) / 10.0
-        medium = (area_m2 - 15) / 10.0
-        large = 0.0
-    elif area_m2 <= 40:
-        small = 0.0
-        medium = (40 - area_m2) / 15.0
-        large = (area_m2 - 25) / 15.0
-    else:
-        small = 0.0
-        medium = 0.0
-        large = 1.0
-    return small, medium, large
-
-
 def fuzzy_membership_amenity(score, max_score=10):
     ratio = score / max_score
+
     if ratio <= 0.3:
         low = 1.0
         medium = 0.0
         high = 0.0
+
     elif ratio <= 0.6:
         low = (0.6 - ratio) / 0.3
         medium = (ratio - 0.3) / 0.3
         high = 0.0
+
     elif ratio <= 0.8:
         low = 0.0
         medium = (0.8 - ratio) / 0.2
         high = (ratio - 0.6) / 0.2
+
     else:
         low = 0.0
         medium = 0.0
         high = 1.0
-    return low, medium, high
 
+    return low, medium, high
+def fuzzy_membership_area(area_m2):
+
+    if area_m2 <= 15:
+        small = 1.0
+        medium = 0.0
+        large = 0.0
+
+    elif area_m2 <= 40:
+        small = (40 - area_m2) / 25.0
+        medium = (area_m2 - 15) / 25.0
+        large = 0.0
+
+    elif area_m2 <= 60:
+        small = 0.0
+        medium = (60 - area_m2) / 20.0
+        large = (area_m2 - 40) / 20.0
+
+    else:
+        small = 0.0
+        medium = 0.0
+        large = 1.0
+
+    return small, medium, large
 
 def fuzzy_price_adjustment(area_m2, amenity_score):
     s_small, s_med, s_large = fuzzy_membership_area(area_m2)
@@ -433,7 +441,9 @@ UEH_CAMPUSES = {
 RADIUS_OPTIONS = [0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
 
 
-def predict_price(models, df, quan, phuong, amenities_dict, area_m2):
+def predict_price(models, df, quan, phuong,
+                  amenities_dict, area_m2,
+                  selected_campus):
     quan_map = models["quan_map"]
     phuong_map = models["phuong_map"]
     quan_mean = models["quan_mean"]
@@ -461,7 +471,9 @@ def predict_price(models, df, quan, phuong, amenities_dict, area_m2):
     # Build feature row matching training schema
     row = {
         "quan": quan, "phuong": phuong,
-        "latitude": lat, "longitude": lon,
+        "latitude": lat, 
+        "longitude": lon,
+        "area_m2": area_m2,
         "amenity_score": amenity_score,
         "price": global_mean,  # placeholder for target encoding reference
     }
@@ -475,6 +487,7 @@ def predict_price(models, df, quan, phuong, amenities_dict, area_m2):
     row["phuong_price_mean"] = phuong_mean.get(phuong, global_mean)
     row["lat_lon_interaction"] = lat * lon
     row["amenity_sq"] = amenity_score ** 2
+    row["area_sq"] = area_m2 ** 2
     row["premium_combo"] = (
         amenities_dict.get("may_lanh", 0) + amenities_dict.get("wc_rieng", 0) +
         amenities_dict.get("ban_cong", 0) + amenities_dict.get("co_bep", 0)
@@ -487,11 +500,17 @@ def predict_price(models, df, quan, phuong, amenities_dict, area_m2):
     # Distance features
     for key, (clat, clon) in CAMPUS_COORDS.items():
         d = haversine(lat, lon, clat, clon)
-        row[f"dist_ueh_{key}"] = d
-        row[f"dist_ueh_{key}_sq"] = d ** 2
-    row["dist_nearest_ueh"] = min(
-        row[f"dist_ueh_{k}"] for k in CAMPUS_COORDS
-    )
+
+    # cơ sở được chọn giữ nguyên
+        if key == selected_campus:
+           row[f"dist_ueh_{key}"] = d
+           row[f"dist_ueh_{key}_sq"] = d ** 2
+        else:
+        # các cơ sở khác = 0
+           row[f"dist_ueh_{key}"] = 0
+           row[f"dist_ueh_{key}_sq"] = 0
+
+    row["dist_nearest_ueh"] = row[f"dist_ueh_{selected_campus}"]
 
     # Build feature vector in correct order
     x = np.array([[row.get(c, 0) for c in feature_cols]], dtype=float)
@@ -737,7 +756,11 @@ def main():
                     options=wards,
                     help="Phường tự động theo quận"
                 )
-
+            selected_campus = st.selectbox(
+                 "🎓 Chọn cơ sở UEH",
+                 options=["A", "B", "C"],
+                 format_func=lambda x: f"UEH Cơ sở {x}"
+            )
             area_m2 = st.slider(
                 "📐 Diện tích phòng (m²)",
                 min_value=8, max_value=80, value=25, step=1,
@@ -774,9 +797,14 @@ def main():
 
             if predict_btn or True:
                 price, low, high = predict_price(
-                    models, df, selected_quan, selected_phuong,
-                    amenities, area_m2
-                )
+                models,
+                df,
+                selected_quan,
+                selected_phuong,
+                amenities,
+                area_m2,
+                selected_campus
+)
 
                 amenity_score = sum(amenities.values())
                 fuzzy_factor = fuzzy_price_adjustment(area_m2, amenity_score)
