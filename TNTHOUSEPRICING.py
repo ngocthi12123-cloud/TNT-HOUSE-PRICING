@@ -1116,7 +1116,7 @@ def main():
             m_suggest = folium.Map(
                 location=[clat, clon],
                 zoom_start=14,
-                tiles="CartoDB positron"
+                tiles="OpenStreetMap"
             )
             folium.Marker(
                 [clat, clon],
