@@ -713,7 +713,7 @@ def make_heatmap(df):
 def main():
     st.markdown("""
     <div class="app-header">
-      <h1>🏠 TroSV – Dự Đoán Giá Thuê Trọ</h1>
+      <h1>🏠 TNT HOUSE PRICING</h1>
       <p>Dành cho sinh viên UEH tại TP. Hồ Chí Minh · Powered by AI & ML</p>
     </div>
     """, unsafe_allow_html=True)
