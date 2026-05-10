@@ -550,7 +550,7 @@ def make_map_with_radius(df, campus_name, radius_km, show_suggestions=True):
     m = folium.Map(
         location=[clat, clon],
         zoom_start=14,
-        tiles="CartoDB positron",
+        tiles="OpenStreetMap",
         prefer_canvas=True
     )
 
